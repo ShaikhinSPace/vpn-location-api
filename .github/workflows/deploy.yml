@@ -1,0 +1,53 @@
+name: Deploy VPN API to EC2
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        port: 22
+        script: |
+          # Navigate to app directory
+          cd /home/ubuntu/vpn-location-api || mkdir -p /home/ubuntu/vpn-location-api
+          
+          # Stop existing service if running
+          sudo pkill -f "uvicorn main:app" || true
+          
+          # Pull latest changes
+          if [ -d ".git" ]; then
+            git pull origin new
+          else
+            git clone https://github.com/${{ github.repository }} .
+          fi
+          
+          # Setup Python environment
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+          
+          # Start the API service in background
+          nohup python3 main.py > api.log 2>&1 &
+          
+          # Wait a moment and check if service started
+          sleep 3
+          if pgrep -f "uvicorn main:app" > /dev/null; then
+            echo "✅ API service started successfully"
+          else
+            echo "❌ Failed to start API service"
+            cat api.log
+            exit 1
+          fi
